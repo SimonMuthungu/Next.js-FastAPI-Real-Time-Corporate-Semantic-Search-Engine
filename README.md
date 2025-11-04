@@ -1,4 +1,6 @@
 ⭐ Next.js-FastAPI-Real-Time-Corporate-Semantic-Search-Engine
+
+
 This application processes corporate documents and leverages Generative AI (RAG) to provide real-time, cited answers and insights from your internal knowledge base. It transforms unstructured documents into a powerful, secure, and highly accurate semantic search experience.
 
 🚀 **Key Features**
