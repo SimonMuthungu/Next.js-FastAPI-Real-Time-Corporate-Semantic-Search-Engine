@@ -37,7 +37,7 @@ def event_stream(query: str):
     yield "data: [END]\n\n"
 
 
-@app.post("api/stream_query")
+@app.post("/api/stream_query")
 async def stream_query(data: dict):
     query = data.get("query", "what is the tech stack?")
     
@@ -50,3 +50,4 @@ async def stream_query(data: dict):
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
