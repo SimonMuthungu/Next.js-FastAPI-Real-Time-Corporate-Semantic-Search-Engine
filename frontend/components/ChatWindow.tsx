@@ -34,7 +34,7 @@ export function ChatWindow() {
 
     try {
       // 1. Initiate a POST request to the streaming API
-      const res = await fetch(API_URL, {
+      const res = await fetch(STREAM_API_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
