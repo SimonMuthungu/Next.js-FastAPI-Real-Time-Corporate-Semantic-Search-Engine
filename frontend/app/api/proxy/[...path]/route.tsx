@@ -1,9 +1,11 @@
+import { NextRequest } from 'next/server'; 
+
 const BACKEND_BASE_URL = "http://16.170.40.5:8000"; 
 
 // Use Edge Runtime for efficient streaming and low latency
 export const runtime = 'edge';
 
-export async function POST(request) {
+export async function POST(request: NextRequest) {
   try {
     // Determine the path requested by the client (e.g., /api/stream_query)
     const urlPath = request.nextUrl.pathname.replace('/api/proxy', '');
