@@ -14,8 +14,9 @@ export async function POST(request: NextRequest) {
     // Clone headers and remove 'host' for successful proxying
     const headers = new Headers(request.headers);
     headers.delete('host');
-    headers.delete('origin');
-    headers.delete('referer');
+    // headers.delete('origin');
+    // headers.delete('referer');
+    headers.delete('connection');
 
     // Forward the request to the HTTP backend
     const backendResponse = await fetch(backendUrl.toString(), {
