@@ -3,7 +3,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 
-const API_BASE_URL: string = process.env.NEXT_PUBLIC_BACKEND_URL || '';
+const API_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
 
 
 const STREAM_API_URL = `${API_BASE_URL}/api/stream_query`; 
