@@ -3,7 +3,8 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
+const API_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL!;
+if (!API_BASE_URL) throw new Error("Missing NEXT_PUBLIC_BACKEND_URL");
 
 
 const STREAM_API_URL = `${API_BASE_URL}/api/stream_query`; 
