@@ -3,7 +3,8 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 
-const API_URL = 'http://localhost:8000/api/stream_query'; 
+// const API_URL = 'http://localhost:8000/api/stream_query'; 
+const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 
 export function ChatWindow() {
   const [query, setQuery] = useState('');
