@@ -7,9 +7,8 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL!;
 if (!API_BASE_URL) throw new Error("Missing NEXT_PUBLIC_BACKEND_URL");
 
 
-const STREAM_API_URL = `${API_BASE_URL}/api/stream_query`; 
-
-const API_URL = `${API_BASE_URL}/rag/query`
+const STREAM_API_URL = `${API_BASE_URL}/api/stream_query`;
+const API_URL = `${API_BASE_URL}/rag/query`;
 
 export function ChatWindow() {
   const [query, setQuery] = useState('');
