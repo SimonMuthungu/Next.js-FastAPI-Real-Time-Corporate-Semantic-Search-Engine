@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
       body: request.body,
       // Critical for proxying request streams in Edge Runtime
       duplex: 'half', 
-    });
+    } as any);
 
     // Return the response stream back to the client over HTTPS
     return new Response(backendResponse.body, {
