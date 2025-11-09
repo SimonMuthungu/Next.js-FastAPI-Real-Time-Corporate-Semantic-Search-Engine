@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'; 
 
-const BACKEND_BASE_URL = "http://16.170.40.5:8000"; 
+const BACKEND_BASE_URL = "http://saw.househub.co.ke:8000"; 
 
 // Use Edge Runtime for efficient streaming and low latency
 export const runtime = 'edge';
