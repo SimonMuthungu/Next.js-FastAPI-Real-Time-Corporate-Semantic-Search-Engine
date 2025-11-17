@@ -11,13 +11,14 @@
 
 
 // frontend/src/app/page.tsx
-import { AgentComplyntApp } from '../components/AgentComplynt'; 
+import { AgentComplyntApp } from '../components/AgentComplynt';
 
 export default function Home() {
   return (
-    // Keep the main wrapper for centering and background
-    <main className="flex min-h-screen items-center justify-center p-4 bg-gray-100">
-      <AgentComplyntApp /> {/* <<< USE NEW COMPONENT */}
+    // Removed 'items-center justify-center' for full stretch
+    // Added 'w-full' to ensure max width usage
+    <main className="flex min-h-screen w-full p-8 bg-gray-100">
+      <AgentComplyntApp />
     </main>
   );
 }

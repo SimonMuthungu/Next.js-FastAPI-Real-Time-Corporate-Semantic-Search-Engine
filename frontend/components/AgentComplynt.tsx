@@ -3,8 +3,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 
 // --- Environment Variables ---
-// IMPORTANT: Ensure NEXT_PUBLIC_BACKEND_URL is set in your .env file
-// It should point to your deployed FastAPI instance (e.g., http://ec2-xx-xx-xx-xx.compute-1.amazonaws.com)
 const API_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL!;
 if (!API_BASE_URL) throw new Error("Missing NEXT_PUBLIC_BACKEND_URL");
 
@@ -71,7 +69,24 @@ const DashboardView: React.FC = () => {
                                         {item.status}
                                     </span>
                                 </td>
-                                <td className="px-3 py-2 whitespace-nowrap text-sm text-blue-600 hover:text-blue-800 cursor-pointer font-medium">{item.action}</td>
+                                <td className="px-3 py-2 whitespace-nowrap">
+                                    {/* Action Buttons based on item.action */}
+                                    {item.action === 'Renew Now' && (
+                                        <button className="text-xs font-semibold px-3 py-1 rounded-full bg-blue-500 text-white hover:bg-blue-600 transition duration-150">
+                                            Renew Now
+                                        </button>
+                                    )}
+                                    {item.action === 'Pay Renewal Fee' && (
+                                        <button className="text-xs font-semibold px-3 py-1 rounded-full bg-red-500 text-white hover:bg-red-600 transition duration-150">
+                                            Pay Renewal Fee
+                                        </button>
+                                    )}
+                                    {item.action === 'Monitor' && (
+                                        <button disabled className="text-xs font-semibold px-3 py-1 rounded-full bg-gray-300 text-gray-700 cursor-not-allowed">
+                                            Monitor
+                                        </button>
+                                    )}
+                                </td>
                             </tr>
                         ))}
                     </tbody>
@@ -231,8 +246,8 @@ const IngestionView: React.FC = () => {
         setIsUploading(true);
         setStatus(`Uploading ${file.name} to vector store and extracting details...`);
 
-        // NOTE: This is a MOCK upload. You will replace this with a real fetch call 
-        // to your new FastAPI endpoint, e.g., fetch(INGEST_API_URL, {...})
+        // NOTE: This is a MOCK upload. will be replaced with a real fetch call 
+        // to new FastAPI endpoint, e.g., fetch(INGEST_API_URL, {...})
         await new Promise(resolve => setTimeout(resolve, 3000)); 
 
         setIsUploading(false);
@@ -300,12 +315,17 @@ export function AgentComplyntApp() {
                 : 'text-gray-600 hover:bg-gray-100 border-b-4 border-transparent'
         }`;
 
-    return (
-        <div className="flex flex-col h-screen max-w-4xl mx-auto p-4 bg-gray-100">
-            <h1 className="text-4xl font-extrabold mb-1 text-blue-800">Agent Complynt 🇰🇪</h1>
-            <p className="text-md text-gray-500 mb-6">Always-on compliance for SMEs, NGOs and corporates.</p>
-
-            {/* Tab Navigation */}
+        return (
+            // 1. Replaced 'max-w-4xl' with 'max-w-7xl' (or remove for full width)
+            // 2. Added 'flex-grow' to ensure height expansion
+            // 3. Changed background and padding for a cleaner look
+            <div className="flex flex-col flex-grow mx-auto w-full max-w-7xl bg-white shadow-xl rounded-lg p-8"> 
+                <h1 className="text-4xl font-extrabold mb-1 text-blue-800">Agent Complynt 🇰🇪</h1>
+                <p className="text-md text-gray-500 mb-6">Always-on compliance for SMEs, NGOs and corporates.</p>
+                
+                {/* Tab Navigation */}
+                <nav className="flex space-x-2 border-b border-gray-300">
+                    {/* Tab Navigation */}
             <nav className="flex space-x-2 border-b border-gray-300">
                 <button onClick={() => setActiveTab('Dashboard')} className={getTabClasses('Dashboard')}>
                     🏠 Dashboard
@@ -317,11 +337,14 @@ export function AgentComplyntApp() {
                     📥 Ingestion
                 </button>
             </nav>
-
-            {/* Content Area */}
-            <div className="flex-grow overflow-y-auto pt-6 pb-4">
-                {renderContent()}
+ 
+            {/* Content Area - Added flex-grow to ensure content fills remaining height */}
+                </nav>
+    
+                {/* Content Area - Added flex-grow to ensure content fills remaining height */}
+                <div className="flex-grow overflow-y-auto pt-6 pb-4">
+                    {renderContent()}
+                </div>
             </div>
-        </div>
-    );
+        );
 }
