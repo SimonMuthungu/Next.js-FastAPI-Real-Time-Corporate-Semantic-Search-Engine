@@ -8,9 +8,15 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from dotenv import load_dotenv 
+
 
 # Import the compiled LangGraph executor and constants
 from rag_pipeline import langgraph_executor, PINECONE_INDEX_LEGAL 
+
+
+load_dotenv()
+
 
 # --- Pydantic Schemas for Request Bodies ---
 class QueryModel(BaseModel):

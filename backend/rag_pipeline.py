@@ -3,16 +3,53 @@ import os
 import asyncio
 from typing import TypedDict, Annotated, List, Dict, Any
 from langgraph.graph import StateGraph, END
+from pinecone import Pinecone
+from google import genai
 
-# --- Configuration Constants ---
-# These are referenced by the PineconeService abstraction
-GEMINI_MODEL = "gemini-2.5-flash-preview-09-2025"
-PINECONE_INDEX_LEGAL = "compliance-legal-acts"
-PINECONE_INDEX_DOCS = "compliance-tender-docs"
+# --- 1. LLM and EMBEDDING MODEL SETUP ---
+
+# Use os.getenv to read the key from the environment
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+if not GEMINI_API_KEY:
+    raise ValueError("GEMINI_API_KEY not found in environment variables.")
+
+# Initialize the Gemini Client
+try:
+    genai_client = genai.Client(api_key=GEMINI_API_KEY)
+except APIError as e:
+    print(f"Error initializing Gemini client: {e}")
+    # Handle specific errors or raise exception
+    
+# Define models
+LLM_MODEL = "gemini-2.5-flash"
+EMBEDDING_MODEL = "text-embedding-004"
+
+
+# --- 2. VECTOR STORE SETUP (Pinecone) ---
+
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
+
+if not PINECONE_API_KEY:
+    raise ValueError("PINECONE_API_KEY not found in environment variables.")
+
+INDEX_NAME = "compliance-docs" 
+pinecone_client = Pinecone(api_key=PINECONE_API_KEY)
+
+
+# --- 3. (Optional) Function to check if the index exists ---
+def get_pinecone_index():
+    """Checks for and returns the Pinecone index object."""
+    if INDEX_NAME not in pinecone_client.list_indexes().names:
+        print(f"Index '{INDEX_NAME}' does not exist. Please create it first.")
+        return None
+    return pc.Index(INDEX_NAME)
+
+
 
 # --- LLM and Pinecone Client Abstractions ---
 
-class LLMService:
+class LLMServices:
     """Abstraction layer for all Gemini API interactions (classification, synthesis)."""
     
     async def classify_intent(self, query: str) -> str:
@@ -21,7 +58,7 @@ class LLMService:
         into a defined LangGraph route ('SIMPLE_RAG' or 'VETTING_CHECK').
         """
         # NOTE: This logic simulates the required structured API call to Gemini.
-        print(f"[LLM] Calling {GEMINI_MODEL} for structured intent classification.")
+        print(f"[LLM] Calling {LLM_MODEL} for structured intent classification.")
         await asyncio.sleep(0.5) 
         
         if "tender" in query.lower() or "vendor" in query.lower() or "compliant" in query.lower() or "anomaly" in query.lower():
@@ -34,7 +71,7 @@ class LLMService:
         the retrieved documents or the structured vetting report context.
         """
         # NOTE: This simulates the final, non-structured generation API call.
-        print(f"[LLM] Calling {GEMINI_MODEL} for final response synthesis.")
+        print(f"[LLM] Calling {LLM_MODEL} for final response synthesis.")
         await asyncio.sleep(1.0) 
 
         if "COMPLIANCE VERDICT" in context:
@@ -42,7 +79,29 @@ class LLMService:
         else:
             return f"**Informational Query Result**:\n\n{context}\n\nThis information is retrieved and summarized from the legal acts repository."
 
-class PineconeService:
+
+
+class LLMService:
+    async def classify_intent(self, query: str) -> str:
+        resp = genai_client.models.generate_content(
+            model=LLM_MODEL,
+            contents=f"Classify this into SIMPLE_RAG or VETTING_CHECK only:\n\n{query}"
+        )
+        text = resp.text.strip().upper()
+        return "VETTING_CHECK" if "VETTING" in text else "SIMPLE_RAG"
+
+    async def generate_response(self, context: str, query: str) -> str:
+        prompt = f"Context:\n{context}\n\nUser Query:\n{query}\n\nWrite a clear final response:"
+        resp = genai_client.models.generate_content(
+            model=LLM_MODEL,
+            contents=prompt
+        )
+        return resp.text
+
+
+
+
+class PineconeServices:
     """Abstraction layer for Pinecone vector store operations."""
     
     async def retrieve_legal_acts(self, query: str, top_k: int = 3) -> List[str]:
@@ -69,6 +128,36 @@ class PineconeService:
             "overall_status": "FAILED_ON_NSSF_EXPIRY",
             "action_required": "Immediate NSSF Renewal and PIN verification."
         }
+
+
+pc = Pinecone(api_key=PINECONE_API_KEY)
+index = pc.Index(INDEX_NAME)
+
+class PineconeService:
+    async def retrieve_legal_acts(self, query: str, top_k: int = 3) -> List[str]:
+        embed = genai_client.models.embed_content(
+            model=EMBEDDING_MODEL,
+            contents=query
+        )
+        vector = embed.embeddings[0]
+
+        res = index.query(vector=vector, top_k=top_k, include_metadata=True)
+        return [m["metadata"].get("text", "") for m in res["matches"]]
+
+    async def perform_anomaly_check(self, query: str) -> Dict[str, Any]:
+        embed = genai_client.models.embed_content(
+            model=EMBEDDING_MODEL,
+            contents=query
+        )
+        vector = embed.embeddings[0]
+
+        res = index.query(vector=vector, top_k=5, include_metadata=True)
+        return {
+            "chunks": [m["metadata"] for m in res["matches"]],
+            "overall_status": "AUTO",
+            "action_required": "Review returned vector chunks."
+        }
+
 
 # Initialize services for use in the LangGraph nodes
 llm_service = LLMService()
