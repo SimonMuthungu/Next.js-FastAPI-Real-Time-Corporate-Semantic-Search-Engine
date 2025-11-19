@@ -8,8 +8,8 @@ if (!API_BASE_URL) throw new Error("Missing NEXT_PUBLIC_BACKEND_URL");
 
 const STREAM_API_URL = `${API_BASE_URL}/api/stream_query`;
 // Add new API URLs for other sections (will be implemented in FastAPI later)
-// const INGEST_API_URL = `${API_BASE_URL}/api/ingest`; 
-// const STATUS_API_URL = `${API_BASE_URL}/api/status`; 
+const INGEST_API_URL = `${API_BASE_URL}/api/ingest`; 
+const STATUS_API_URL = `${API_BASE_URL}/api/status`; 
 
 // ====================================================================
 // 1. Dashboard View Component
@@ -242,18 +242,36 @@ const IngestionView: React.FC = () => {
             setStatus("Please select a file first.");
             return;
         }
-
+    
         setIsUploading(true);
-        setStatus(`Uploading ${file.name} to vector store and extracting details...`);
-
-        // NOTE: This is a MOCK upload. will be replaced with a real fetch call 
-        // to new FastAPI endpoint, e.g., fetch(INGEST_API_URL, {...})
-        await new Promise(resolve => setTimeout(resolve, 3000)); 
-
-        setIsUploading(false);
-        setFile(null);
-        setStatus(`✅ Successfully ingested '${file.name}'. The agent has extracted critical dates and compliance requirements.`);
+        setStatus(`Uploading ${file.name}...`);
+    
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("doc_type", "TENDER_DOC"); // can be dynamic later
+    
+        try {
+            const res = await fetch(INGEST_API_URL, {
+                method: "POST",
+                body: formData,
+            });
+    
+            if (!res.ok) {
+                throw new Error(`Upload failed: ${res.status}`);
+            }
+    
+            const data = await res.json();
+    
+            setIsUploading(false);
+            setFile(null);
+            setStatus(`✅ ${data.message}`);
+        } catch (err: any) {
+            console.error(err);
+            setIsUploading(false);
+            setStatus(`❌ Upload failed: ${err.message}`);
+        }
     };
+    
 
     return (
         <div className="space-y-6 p-4 bg-white rounded-lg">

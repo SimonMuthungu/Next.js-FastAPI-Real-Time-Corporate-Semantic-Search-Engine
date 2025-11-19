@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 
 
 # Import the compiled LangGraph executor and constants
-from rag_pipeline import langgraph_executor, PINECONE_INDEX_LEGAL 
+from rag_pipeline import langgraph_executor, INDEX_NAME  
 
 
 load_dotenv()
@@ -57,7 +57,7 @@ app.add_middleware(
 @app.get("/health")
 def health_check():
     """Confirms the server is running and responsive."""
-    return {"status": "ok", "pinecone_index_target": PINECONE_INDEX_LEGAL}
+    return {"status": "ok", "pinecone_index_target": INDEX_NAME}
 
 # --- Endpoint 2: Compliance Chat (Core RAG/LangGraph) ---
 async def langgraph_stream(query: str, executor) -> AsyncGenerator[str, None]:
@@ -102,29 +102,28 @@ async def stream_query(data: QueryModel):
     )
 
 # --- Endpoint 3: Document Ingestion (Knowledge Loader) ---
+from rag_pipeline import ingest_pdf_document
+
 @app.post("/api/ingest")
 async def ingest_document(
     file: UploadFile = File(...),
-    doc_type: str = Form(..., description="e.g., 'TENDER_DOC', 'KRA_TCC'")
+    doc_type: str = Form(...)
 ):
-    """Receives a document and triggers the classification and vectorization pipeline."""
-    
-    # Read file content asynchronously
-    content = await file.read() 
-    
-    # NOTE: The actual ingestion pipeline (OCR/Parsing, Chunking, Embedding, Pinecone write) 
-    # would be executed here or dispatched to a dedicated background worker/queue.
+    content = await file.read()
 
-    print(f"Ingestion started for '{file.filename}' (Type: {doc_type}). Size: {len(content)} bytes.")
-    
-    # Simulate non-blocking queueing time
-    await asyncio.sleep(0.5) 
+    # trigger ingestion pipeline
+    try:
+        print('Ingestinf files')
+        result = await ingest_pdf_document(content, file.filename, doc_type)
+        return {
+            "status": "success",
+            "message": f"{file.filename} ingested and vectorized.",
+            "chunks_created": result["chunks"],
+            "doc_type": doc_type
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-    return {
-        "status": "processing_queued",
-        "message": f"File '{file.filename}' is queued for vectorization and data extraction.",
-        "doc_type": doc_type
-    }
 
 # --- Endpoint 4: Dashboard Status (Proactive Monitor) ---
 @app.get("/api/status")

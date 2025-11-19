@@ -5,6 +5,11 @@ from typing import TypedDict, Annotated, List, Dict, Any
 from langgraph.graph import StateGraph, END
 from pinecone import Pinecone
 from google import genai
+from dotenv import load_dotenv
+from pypdf import PdfReader
+from io import BytesIO
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+load_dotenv()
 
 # --- 1. LLM and EMBEDDING MODEL SETUP ---
 
@@ -106,7 +111,7 @@ class PineconeServices:
     
     async def retrieve_legal_acts(self, query: str, top_k: int = 3) -> List[str]:
         """Performs vector search against the dedicated Legal Acts index."""
-        print(f"[Pinecone] Querying index '{PINECONE_INDEX_LEGAL}' for top {top_k} chunks.")
+        print(f"[Pinecone] Querying index '{INDEX_NAME}' for top {top_k} chunks.")
         await asyncio.sleep(0.8) 
         
         return [
@@ -139,7 +144,9 @@ class PineconeService:
             model=EMBEDDING_MODEL,
             contents=query
         )
-        vector = embed.embeddings[0]
+
+        vector = embed.embeddings[0].values
+
 
         res = index.query(vector=vector, top_k=top_k, include_metadata=True)
         return [m["metadata"].get("text", "") for m in res["matches"]]
@@ -149,7 +156,7 @@ class PineconeService:
             model=EMBEDDING_MODEL,
             contents=query
         )
-        vector = embed.embeddings[0]
+        vector = embed.embeddings[0].values
 
         res = index.query(vector=vector, top_k=5, include_metadata=True)
         return {
@@ -157,6 +164,56 @@ class PineconeService:
             "overall_status": "AUTO",
             "action_required": "Review returned vector chunks."
         }
+
+
+
+
+splitter = RecursiveCharacterTextSplitter(
+    chunk_size=800,
+    chunk_overlap=120
+)
+
+async def ingest_pdf_document(content: bytes, filename: str, doc_type: str):
+    """Full ingestion pipeline: PDF → Text → Chunks → Embeddings → Pinecone."""
+    
+    # 1. Extract PDF text
+    reader = PdfReader(BytesIO(content))
+    text = ""
+    for page in reader.pages:
+        text += page.extract_text() or ""
+
+    # 2. Chunk into sections
+    chunks = splitter.split_text(text)
+
+    vectors = []
+
+    # 3. Embed and prepare vectors
+    for i, chunk in enumerate(chunks):
+        resp = genai_client.models.embed_content(
+            model=EMBEDDING_MODEL,
+            contents=chunk
+        )
+
+        embedding = resp.embeddings[0].values
+
+        vectors.append({
+            "id": f"{filename}-{i}",
+            "values": embedding,
+            "metadata": {
+                "text": chunk,
+                "source": filename,
+                "doc_type": doc_type
+            }
+        })
+
+    # 4. Upsert to Pinecone
+    index.upsert(vectors)
+
+    return {
+        "chunks": len(chunks),
+        "filename": filename
+    }
+
 
 
 # Initialize services for use in the LangGraph nodes
