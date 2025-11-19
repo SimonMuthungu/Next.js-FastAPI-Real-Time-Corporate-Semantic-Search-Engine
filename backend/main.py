@@ -9,6 +9,11 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv 
+from fastapi import UploadFile, File, Form, APIRouter
+from pypdf import PdfReader
+import io
+from rag_pipeline import ingest_pdf_document
+
 
 
 # Import the compiled LangGraph executor and constants
@@ -102,27 +107,116 @@ async def stream_query(data: QueryModel):
     )
 
 # --- Endpoint 3: Document Ingestion (Knowledge Loader) ---
-from rag_pipeline import ingest_pdf_document
+router = APIRouter()
 
-@app.post("/api/ingest")
+def extract_text_from_pdf(content_bytes):
+    print("📄 Extracting text from PDF...")
+    try:
+        reader = PdfReader(io.BytesIO(content_bytes))
+        text = ""
+        for i, page in enumerate(reader.pages):
+            page_text = page.extract_text() or ""
+            print(f"   • Page {i+1}: {len(page_text)} chars")
+            text += page_text
+        print(f"📘 Total extracted text length: {len(text)}")
+        return text
+    except Exception as e:
+        print("❌ PDF extraction failed:", str(e))
+        return ""
+
+
+def chunk_text(text, chunk_size=800, overlap=100):
+    print("✂️ Chunking text...")
+    chunks = []
+    start = 0
+    text_len = len(text)
+
+    while start < text_len:
+        end = min(start + chunk_size, text_len)
+        chunks.append(text[start:end])
+        start = end - overlap
+
+    print(f"📦 Total chunks created: {len(chunks)}")
+    return chunks
+
+
+def embed_text(text):
+    print(f"🧠 Embedding chunk ({len(text)} chars)...")
+    try:
+        resp = genai_client.models.embed_content(
+            model="models/embedding-001",
+            contents=text
+        )
+        return resp.embeddings[0].values
+    except Exception as e:
+        print("❌ Embedding failed:", str(e))
+        return None
+
+
+def store_chunks(doc_id, chunks):
+    print("📌 Storing chunks in Pinecone...")
+
+    vectors = []
+    for i, chunk in enumerate(chunks):
+        embedding = embed_text(chunk)
+        if embedding is None:
+            print(f"   ⚠️ Skipping chunk {i} due to embedding error")
+            continue
+
+        vectors.append({
+            "id": f"{doc_id}_{i}",
+            "values": embedding,
+            "metadata": {"text": chunk}
+        })
+
+        print(f"   • Prepared chunk {i} for upsert")
+
+    if vectors:
+        index.upsert(vectors)
+        print(f"✅ {len(vectors)} vectors stored in Pinecone.")
+    else:
+        print("❌ No vectors to upload!")
+
+
+# -------------------------------
+# MAIN INGEST ENDPOINT
+# -------------------------------
+@router.post("/api/ingest")
 async def ingest_document(
     file: UploadFile = File(...),
-    doc_type: str = Form(...)
+    doc_type: str = Form(...),
 ):
-    content = await file.read()
+    print("\n----------------------------")
+    print("📥 INGEST ENDPOINT CALLED")
+    print("----------------------------")
 
-    # trigger ingestion pipeline
-    try:
-        print('Ingestinf files')
-        result = await ingest_pdf_document(content, file.filename, doc_type)
-        return {
-            "status": "success",
-            "message": f"{file.filename} ingested and vectorized.",
-            "chunks_created": result["chunks"],
-            "doc_type": doc_type
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    print(f"📌 doc_type: {doc_type}")
+    print(f"📎 File: {file.filename} ({file.content_type})")
+    content = await file.read()
+    print(f"📏 File size: {len(content)} bytes\n")
+
+    # 1. Extract text
+    text = extract_text_from_pdf(content)
+    if len(text.strip()) == 0:
+        return {"status": "error", "message": "Could not extract text from PDF"}
+
+    # 2. Chunk text
+    chunks = chunk_text(text)
+    if len(chunks) == 0:
+        return {"status": "error", "message": "Text chunking failed"}
+
+    # 3. Store in Pinecone
+    store_chunks(file.filename, chunks)
+
+    print("🚀 Ingestion pipeline finished!\n")
+
+    return {
+        "status": "success",
+        "message": f"'{file.filename}' ingested successfully.",
+        "chunks_stored": len(chunks),
+        "doc_type": doc_type
+    }
+
 
 
 # --- Endpoint 4: Dashboard Status (Proactive Monitor) ---
@@ -145,3 +239,6 @@ async def get_dashboard_status() -> Dict[str, Any]:
             {"project": "NGO Grant", "status": "Needs Review", "score": 85, "findings": "Expired NGO Board Reg."},
         ]
     }
+
+
+app.include_router(router)
