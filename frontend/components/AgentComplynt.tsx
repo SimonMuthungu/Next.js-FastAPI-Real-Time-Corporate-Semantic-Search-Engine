@@ -194,7 +194,7 @@ const ChatView: React.FC = () => {
             <h2 className="text-2xl font-bold text-gray-800 mb-4">LangGraph Compliance Analysis</h2>
             {/* Chat Display Area */}
             <div className="flex-grow overflow-y-auto border border-gray-200 p-5 mb-4 bg-gray-50 rounded-lg text-gray-900 whitespace-pre-wrap text-sm font-mono leading-relaxed shadow-inner">
-                {response || "Ask a question about your ingested documents (e.g., 'Does Vendor X comply with the uploaded BigCo Bank Tender?')."}
+                {response || "Ask a question about your ingested documents (e.g., 'Does my business meet all requirements in the uploaded tender?')."}
                 <div ref={chatEndRef} />
             </div>
 
@@ -311,12 +311,12 @@ const IngestionView: React.FC = () => {
 
 export function AgentComplyntApp() {
     // State to manage the active view
-    const [activeTab, setActiveTab] = useState<'Dashboard' | 'Chat' | 'Ingestion'>('Dashboard');
+    const [activeTab, setActiveTab] = useState<'Chat' | 'Ingestion'>('Chat');
 
     const renderContent = () => {
         switch (activeTab) {
-            case 'Dashboard':
-                return <DashboardView />;
+            // case 'Dashboard':
+            //     return <DashboardView />;
             case 'Chat':
                 return <ChatView />;
             case 'Ingestion':
@@ -345,9 +345,9 @@ export function AgentComplyntApp() {
                 <nav className="flex space-x-2 border-b border-gray-300">
                     {/* Tab Navigation */}
             <nav className="flex space-x-2 border-b border-gray-300">
-                <button onClick={() => setActiveTab('Dashboard')} className={getTabClasses('Dashboard')}>
+                {/* <button onClick={() => setActiveTab('Dashboard')} className={getTabClasses('Dashboard')}>
                     🏠 Dashboard
-                </button>
+                </button> */}
                 <button onClick={() => setActiveTab('Chat')} className={getTabClasses('Chat')}>
                     💬 Compliance Chat
                 </button>

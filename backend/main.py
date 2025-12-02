@@ -18,9 +18,26 @@ from rag_pipeline import ingest_pdf_document
 
 # Import the compiled LangGraph executor and constants
 from rag_pipeline import langgraph_executor, INDEX_NAME  
+from pinecone import Pinecone
 
 
 load_dotenv()
+
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
+
+if not PINECONE_API_KEY:
+    raise ValueError("PINECONE_API_KEY not found in environment variables.")
+
+INDEX_NAME = "compliance-docs"
+
+pinecone_client = Pinecone(api_key=PINECONE_API_KEY)
+index = pinecone_client.Index(INDEX_NAME)
+
+import cohere
+co = cohere.Client(os.getenv("COHERE_API_KEY"))
+
+from openai import OpenAI
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
 # --- Pydantic Schemas for Request Bodies ---
@@ -133,42 +150,92 @@ def chunk_text(text, chunk_size=800, overlap=100):
 
     while start < text_len:
         end = min(start + chunk_size, text_len)
-        chunks.append(text[start:end])
-        start = end - overlap
+        chunk = text[start:end]
+        chunks.append(chunk)
+
+        # Ensure we always move forward
+        next_start = end - overlap
+        if next_start <= start:
+            next_start = end  # force forward progress
+
+        start = next_start
 
     print(f"📦 Total chunks created: {len(chunks)}")
     return chunks
 
 
+def chunk_text_v2(text, chunk_size=800, overlap=100):
+    print("✂️ Chunking text...")
+    chunks = []
+    text_len = len(text)
+    start = 0
+
+    while start < text_len:
+        end = min(start + chunk_size, text_len)
+        chunk = text[start:end]
+        chunks.append(chunk)
+
+        # move forward, prevent infinite loop
+        next_start = end - overlap
+        if next_start <= start:
+            next_start = end
+
+        start = next_start
+
+    print(f"📦 Total chunks created: {len(chunks)}")
+    return chunks
+
+
+
+
 def embed_text(text):
-    print(f"🧠 Embedding chunk ({len(text)} chars)...")
-    try:
-        resp = genai_client.models.embed_content(
-            model="models/embedding-001",
-            contents=text
+    response = client.embeddings.create(
+        model="text-embedding-3-small",
+        input=text
+    )
+    return response.data[0].embedding
+
+
+def embed_text_batch_v2(chunks, batch_size=50):
+    all_embeddings = []
+
+    for i in range(0, len(chunks), batch_size):
+        batch = chunks[i:i + batch_size]
+
+        print(f"🔢 Embedding batch {i//batch_size + 1} "
+              f"({len(batch)} chunks)...")
+
+        response = co.embed(
+            texts=batch,
+            model="embed-english-v3.0",
+            input_type="search_document"
         )
-        return resp.embeddings[0].values
-    except Exception as e:
-        print("❌ Embedding failed:", str(e))
-        return None
+
+        all_embeddings.extend(response.embeddings)
+
+    print("✨ All embeddings generated.")
+    return all_embeddings
+
+
 
 
 def store_chunks(doc_id, chunks):
     print("📌 Storing chunks in Pinecone...")
 
-    vectors = []
-    for i, chunk in enumerate(chunks):
-        embedding = embed_text(chunk)
-        if embedding is None:
-            print(f"   ⚠️ Skipping chunk {i} due to embedding error")
-            continue
+    # 1️⃣ Embed ALL chunks at once (in batches)
+    embeddings = embed_text_batch_v2(chunks)
 
+    if embeddings is None or len(embeddings) != len(chunks):
+        print("❌ Embedding mismatch — skipping upload.")
+        return
+
+    vectors = []
+    for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
         vectors.append({
             "id": f"{doc_id}_{i}",
-            "values": embedding,
+            "values": emb,
             "metadata": {"text": chunk}
         })
-
         print(f"   • Prepared chunk {i} for upsert")
 
     if vectors:
@@ -201,7 +268,7 @@ async def ingest_document(
         return {"status": "error", "message": "Could not extract text from PDF"}
 
     # 2. Chunk text
-    chunks = chunk_text(text)
+    chunks = chunk_text_v2(text) 
     if len(chunks) == 0:
         return {"status": "error", "message": "Text chunking failed"}
 

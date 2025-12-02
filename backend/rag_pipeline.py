@@ -41,6 +41,9 @@ if not PINECONE_API_KEY:
 INDEX_NAME = "compliance-docs" 
 pinecone_client = Pinecone(api_key=PINECONE_API_KEY)
 
+import cohere
+co = cohere.Client(os.getenv("COHERE_API_KEY"))
+
 
 # --- 3. (Optional) Function to check if the index exists ---
 def get_pinecone_index():
@@ -140,23 +143,44 @@ index = pc.Index(INDEX_NAME)
 
 class PineconeService:
     async def retrieve_legal_acts(self, query: str, top_k: int = 3) -> List[str]:
-        embed = genai_client.models.embed_content(
-            model=EMBEDDING_MODEL,
-            contents=query
+
+        # embed = genai_client.models.embed_content(
+        #     model=EMBEDDING_MODEL,
+        #     contents=query
+        # )
+
+        # vector = embed.embeddings[0].values
+
+
+        resp = co.embed(
+            texts=[query],
+            model="embed-english-v3.0",
+            input_type="search_query"
         )
 
-        vector = embed.embeddings[0].values
+        vector = resp.embeddings[0]
 
 
         res = index.query(vector=vector, top_k=top_k, include_metadata=True)
         return [m["metadata"].get("text", "") for m in res["matches"]]
 
     async def perform_anomaly_check(self, query: str) -> Dict[str, Any]:
-        embed = genai_client.models.embed_content(
-            model=EMBEDDING_MODEL,
-            contents=query
+
+
+        # embed = genai_client.models.embed_content(
+        #     model=EMBEDDING_MODEL,
+        #     contents=query
+        # )
+        # vector = embed.embeddings[0].values
+
+
+        resp = co.embed(
+            texts=[query],
+            model="embed-english-v3.0",
+            input_type="search_query"
         )
-        vector = embed.embeddings[0].values
+
+        vector = resp.embeddings[0]
 
         res = index.query(vector=vector, top_k=5, include_metadata=True)
         return {
