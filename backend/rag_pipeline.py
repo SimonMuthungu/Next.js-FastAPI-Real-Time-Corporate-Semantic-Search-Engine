@@ -8,7 +8,7 @@ from google import genai
 from dotenv import load_dotenv
 from pypdf import PdfReader
 from io import BytesIO
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 load_dotenv()
 
 # --- 1. LLM and EMBEDDING MODEL SETUP ---
