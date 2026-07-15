@@ -1,13 +1,10 @@
 "use client"
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 
 // Environment Variables
 const API_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL!;
 if (!API_BASE_URL) throw new Error("Missing NEXT_PUBLIC_BACKEND_URL");
-
-const INGEST_API_URL = `${API_BASE_URL}/api/ingest`;
-const STREAM_API_URL = `${API_BASE_URL}/api/stream_query`;
 
 // Type definitions
 type Step = 1 | 2 | 3;
@@ -17,6 +14,39 @@ type UploadedDoc = {
   status: 'uploading' | 'extracted' | 'error';
   checklistItem?: string;
   error?: string;
+};
+type CompanyDocResponse = {
+  id: number;
+  applicant: number;
+  original_filename: string;
+  document_type: string | null;
+  uploaded_at: string;
+  extracted_data: any;
+  file: string;
+};
+type TenderSubmissionResponse = {
+  id: number;
+  applicant: number;
+  tender_text: string | null;
+  tender_file: string | null;
+  submitted_at: string;
+};
+type ProposalDraftResponse = {
+  id: number;
+  version: number;
+  docx_url: string;
+  pdf_url: string;
+  edit_instructions: string | null;
+  generated_at: string;
+};
+type ComplianceCheckResponse = {
+  id: number;
+  tender_submission: number;
+  compliance_score: string;
+  missing_requirements: Array<{ requirement: string; note: string }>;
+  status: string;
+  created_at: string;
+  latest_proposal: ProposalDraftResponse | null;
 };
 
 const DOCUMENT_CHECKLIST = [
@@ -36,31 +66,63 @@ const Step1: React.FC<{
   companyDocs: UploadedDoc[];
   setCompanyDocs: React.Dispatch<React.SetStateAction<UploadedDoc[]>>;
   onContinue: () => void;
-  onBack: () => void;
-}> = ({ companyDocs, setCompanyDocs, onContinue, onBack }) => {
+  applicantEmail: string;
+  setApplicantEmail: React.Dispatch<React.SetStateAction<string>>;
+  couponCode: string;
+  setCouponCode: React.Dispatch<React.SetStateAction<string>>;
+}> = ({ companyDocs, setCompanyDocs, onContinue, applicantEmail, setApplicantEmail, couponCode, setCouponCode }) => {
   const fileInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
   const dragOverRef = useRef<string | null>(null);
 
-  const handleFiles = (files: FileList | null, checklistItem?: string) => {
-    if (!files) return;
-    Array.from(files).forEach((file) => {
-      const newDoc: UploadedDoc = {
-        id: Math.random().toString(36).substr(2, 9),
-        file,
-        status: 'uploading',
-        checklistItem,
-      };
-      setCompanyDocs(prev => [...prev, newDoc]);
-      simulateUpload(newDoc.id);
-    });
-  };
+  const handleFiles = async (files: FileList | null, checklistItem?: string) => {
+    if (!files || !applicantEmail.trim() || !couponCode.trim()) {
+      if (!applicantEmail.trim()) alert("Please enter your email first!");
+      if (!couponCode.trim()) alert("Please enter your coupon code!");
+      return;
+    }
+    const newDocs: UploadedDoc[] = Array.from(files).map(file => ({
+      id: Math.random().toString(36).substr(2, 9),
+      file,
+      status: 'uploading',
+      checklistItem,
+    }));
+    setCompanyDocs(prev => [...prev, ...newDocs]);
 
-  const simulateUpload = (docId: string) => {
-    setTimeout(() => {
-      setCompanyDocs(prev => prev.map(d => 
-        d.id === docId ? { ...d, status: 'extracted' } : d
-      ));
-    }, 1500);
+    // Upload to backend
+    const formData = new FormData();
+    formData.append("email", applicantEmail);
+    formData.append("coupon", couponCode);
+    Array.from(files).forEach(file => {
+      formData.append("files", file);
+      if (checklistItem) formData.append(`document_type_${file.name}`, checklistItem);
+    });
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/company-documents/`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!response.ok) {
+        const errText = await response.text();
+        alert(`Error: ${errText}`);
+        throw new Error("Upload failed");
+      }
+      const result: CompanyDocResponse[] = await response.json();
+      
+      // Mark as extracted
+      setCompanyDocs(prev => prev.map(d => {
+        const uploadedFile = newDocs.find(nd => nd.file.name === d.file.name);
+        if (uploadedFile) return { ...d, status: 'extracted' };
+        return d;
+      }));
+    } catch (error) {
+      console.error(error);
+      setCompanyDocs(prev => prev.map(d => {
+        const uploadedFile = newDocs.find(nd => nd.file.name === d.file.name);
+        if (uploadedFile) return { ...d, status: 'error', error: "Upload failed" };
+        return d;
+      }));
+    }
   };
 
   const removeDoc = (docId: string) => {
@@ -75,7 +137,24 @@ const Step1: React.FC<{
     <div className="flex flex-col min-h-[calc(100vh-100px)]">
       <div className="mb-8">
         <h1 className="text-3xl md:text-4xl font-bold text-[#0a2342] mb-4">Add Your Company Documents</h1>
-        <p className="text-lg text-gray-600">We'll check these against any tender you want to bid for.</p>
+        <p className="text-lg text-gray-600 mb-4">We'll check these against any tender you want to bid for.</p>
+        <div className="space-y-4">
+          <input
+            type="email"
+            placeholder="Enter your email address"
+            value={applicantEmail}
+            onChange={(e) => setApplicantEmail(e.target.value)}
+            className="w-full p-4 bg-gray-50 text-gray-900 placeholder:text-gray-500 border border-gray-300 rounded-lg text-lg focus:outline-none focus:ring-2 focus:ring-[#0a2342]"
+          />
+          <input
+            type="text"
+            placeholder="Enter your 4-digit coupon code"
+            value={couponCode}
+            onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+            maxLength={4}
+            className="w-full p-4 bg-gray-50 text-gray-900 placeholder:text-gray-500 border border-gray-300 rounded-lg text-lg focus:outline-none focus:ring-2 focus:ring-[#0a2342]"
+          />
+        </div>
       </div>
 
       {/* Checklist with individual uploads */}
@@ -96,9 +175,8 @@ const Step1: React.FC<{
                       >
                         ✕
                       </button>
-                      {doc.status === 'extracted' && (
-                        <span className="text-green-600">✓</span>
-                      )}
+                      {doc.status === 'extracted' && <span className="text-green-600">✓</span>}
+                      {doc.status === 'error' && <span className="text-red-600">{doc.error}</span>}
                     </div>
                   ))}
                   <input
@@ -162,21 +240,21 @@ const Step1: React.FC<{
                   <div className="w-8 h-8 bg-green-100 text-green-700 rounded-full flex items-center justify-center flex-shrink-0">
                     ✓
                   </div>
-                ) : (
+                ) : doc.status === 'uploading' ? (
                   <div className="w-8 h-8 border-2 border-gray-300 rounded-full flex-shrink-0 animate-pulse" />
+                ) : (
+                  <div className="w-8 h-8 bg-red-100 text-red-700 rounded-full flex items-center justify-center flex-shrink-0">
+                    ✕
+                  </div>
                 )}
                 <div className="flex-1">
                   <p className="text-gray-800 font-medium">{doc.file.name}</p>
+                  {doc.error && <p className="text-sm text-red-600">{doc.error}</p>}
                 </div>
                 <button onClick={() => removeDoc(doc.id)} className="text-red-600 hover:text-red-800">
                   ✕
                 </button>
-                {doc.status === 'extracted' && (
-                  <span className="px-3 py-1 bg-blue-100 text-blue-700 text-sm rounded-full">extracted</span>
-                )}
-                {doc.status === 'uploading' && (
-                  <span className="px-3 py-1 bg-yellow-100 text-yellow-700 text-sm rounded-full">processing...</span>
-                )}
+                {doc.status === 'extracted' && <span className="px-3 py-1 bg-blue-100 text-blue-700 text-sm rounded-full">extracted</span>}
               </div>
             ))}
           </div>
@@ -187,7 +265,7 @@ const Step1: React.FC<{
       <div className="mt-auto">
         <button
           onClick={onContinue}
-          disabled={companyDocs.length === 0}
+          disabled={companyDocs.length === 0 || !applicantEmail.trim() || !couponCode.trim()}
           className="w-full py-4 bg-[#d97706] text-white text-xl font-bold rounded-lg hover:bg-[#b45309] disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
         >
           Continue to Tender →
@@ -207,6 +285,8 @@ const Step2: React.FC<{
   isLoading: boolean;
   loadingSteps: string[];
   onBack: () => void;
+  applicantEmail: string;
+  couponCode: string;
 }> = ({ 
   tenderText, 
   setTenderText, 
@@ -215,13 +295,15 @@ const Step2: React.FC<{
   onCheckProposal, 
   isLoading, 
   loadingSteps, 
-  onBack 
+  onBack,
+  applicantEmail,
+  couponCode,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
 
   const handleSubmit = () => {
-    if (!tenderText.trim() && !tenderFile) return;
+    if ((!tenderText.trim() && !tenderFile) || !applicantEmail.trim() || !couponCode.trim()) return;
     onCheckProposal(tenderText, tenderFile);
   };
 
@@ -231,11 +313,6 @@ const Step2: React.FC<{
     if (e.dataTransfer.files?.[0]) {
       setTenderFile(e.dataTransfer.files[0]);
     }
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(true);
   };
 
   if (isLoading) {
@@ -264,17 +341,15 @@ const Step2: React.FC<{
       </div>
 
       <div className="grid md:grid-cols-2 gap-8 mb-10">
-        {/* Paste Text */}
         <div className="bg-white border border-gray-200 rounded-lg p-6">
           <textarea
             value={tenderText}
             onChange={(e) => setTenderText(e.target.value)}
             placeholder="Paste tender details here..."
-            className="w-full h-64 p-4 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-[#0a2342] text-gray-800"
+            className="w-full h-64 p-4 bg-gray-50 text-gray-900 placeholder:text-gray-500 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-[#0a2342]"
           />
         </div>
 
-        {/* Divider */}
         <div className="hidden md:flex items-center justify-center">
           <div className="w-full h-px bg-gray-300" />
           <span className="px-6 text-gray-500 font-bold">OR</span>
@@ -286,10 +361,9 @@ const Step2: React.FC<{
           <div className="h-px bg-gray-300 w-1/4" />
         </div>
 
-        {/* Upload File */}
         <div
           onDrop={handleDrop}
-          onDragOver={handleDragOver}
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
           onClick={() => fileInputRef.current?.click()}
           className={`bg-white border-4 border-dashed rounded-lg p-8 text-center cursor-pointer transition-all ${
@@ -308,10 +382,7 @@ const Step2: React.FC<{
               <div className="text-4xl mb-2 text-green-700">✓</div>
               <p className="text-lg font-medium text-gray-800">{tenderFile.name}</p>
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setTenderFile(null);
-                }}
+                onClick={(e) => { e.stopPropagation(); setTenderFile(null); }}
                 className="text-sm text-red-600 mt-2 hover:text-red-800"
               >
                 Remove
@@ -330,7 +401,7 @@ const Step2: React.FC<{
       <div className="mt-auto">
         <button
           onClick={handleSubmit}
-          disabled={!tenderText.trim() && !tenderFile}
+          disabled={(!tenderText.trim() && !tenderFile) || !applicantEmail.trim() || !couponCode.trim()}
           className="w-full py-4 bg-[#d97706] text-white text-xl font-bold rounded-lg hover:bg-[#b45309] disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
         >
           Check My Proposal →
@@ -343,34 +414,41 @@ const Step2: React.FC<{
 // --- Step 3: Results ---
 const Step3: React.FC<{
   onBackHome: () => void;
-  proposal: string;
-  setProposal: React.Dispatch<React.SetStateAction<string>>;
   onBack: () => void;
-}> = ({ onBackHome, proposal, setProposal, onBack }) => {
+  complianceCheck: ComplianceCheckResponse | null;
+  setComplianceCheck: React.Dispatch<React.SetStateAction<ComplianceCheckResponse | null>>;
+  applicantEmail: string;
+  couponCode: string;
+}> = ({ onBackHome, onBack, complianceCheck, setComplianceCheck, applicantEmail, couponCode }) => {
   const [editRequest, setEditRequest] = useState('');
   const [isRegenerating, setIsRegenerating] = useState(false);
 
-  // Mock data
-  const totalRequirements = 10;
-  const metRequirements = 7;
-  const missingItems = [
-    "❌ Tax Compliance Certificate — yours has expired. Renew before submitting.",
-    "❌ NCA Certificate — missing. If this is a construction tender, you'll need this.",
-  ];
+  if (!complianceCheck) {
+    return <div className="flex items-center justify-center min-h-[60vh]"><p className="text-lg text-gray-600">Loading...</p></div>;
+  }
 
   const handleRegenerate = async () => {
     if (!editRequest.trim()) return;
     setIsRegenerating(true);
-    // Simulate regeneration
-    setTimeout(() => {
-      setProposal(prev => `${prev}\n\n--- EDITS APPLIED ---\n${editRequest}`);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/compliance-checks/${complianceCheck.id}/revise/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ edit_instructions: editRequest, coupon: couponCode }),
+      });
+      if (!response.ok) {
+        const errText = await response.text();
+        alert(`Error: ${errText}`);
+        throw new Error("Revise failed");
+      }
+      const updatedCheck = await response.json();
+      setComplianceCheck(updatedCheck);
       setEditRequest('');
+    } catch (error) {
+      console.error(error);
+    } finally {
       setIsRegenerating(false);
-    }, 2000);
-  };
-
-  const handleDownload = (format: 'word' | 'pdf') => {
-    alert(`Downloading proposal as ${format}... (this is a mock)`);
+    }
   };
 
   return (
@@ -379,65 +457,62 @@ const Step3: React.FC<{
         <h1 className="text-3xl md:text-4xl font-bold text-[#0a2342] mb-4">Your Results</h1>
       </div>
 
-      {/* Compliance Score */}
       <div className="mb-10 bg-white border-2 border-gray-200 rounded-xl p-8 text-center">
         <div className="text-8xl font-serif font-bold text-[#166534] mb-4">
-          {metRequirements} of {totalRequirements}
-        </div>
-        <div className="flex items-center justify-center gap-2 mb-2">
-          {[...Array(totalRequirements)].map((_, i) => (
-            <div
-              key={i}
-              className={`w-8 h-8 rounded-full ${i < metRequirements ? 'bg-[#166534]' : 'bg-[#dc2626]'}`}
-            />
-          ))}
+          {complianceCheck.compliance_score}
         </div>
         <p className="text-2xl text-gray-700 font-semibold">Requirements Met</p>
       </div>
 
-      {/* What's Missing */}
-      <div className="mb-10 bg-red-50 border border-red-200 rounded-lg p-6">
-        <h2 className="text-xl font-bold text-red-800 mb-4">What's Missing</h2>
-        <ul className="space-y-3">
-          {missingItems.map((item, index) => (
-            <li key={index} className="text-gray-800 text-lg">{item}</li>
-          ))}
-        </ul>
-      </div>
+      {complianceCheck.missing_requirements?.length > 0 && (
+        <div className="mb-10 bg-red-50 border border-red-200 rounded-lg p-6">
+          <h2 className="text-xl font-bold text-red-800 mb-4">What's Missing</h2>
+          <ul className="space-y-3">
+            {complianceCheck.missing_requirements.map((item, index) => (
+              <li key={index} className="text-gray-800 text-lg">❌ {item.requirement} — {item.note}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
-      {/* Proposal */}
-      <div className="mb-10">
-        <div className="bg-white border border-gray-200 rounded-lg">
-          <div className="p-6 border-b border-gray-200 flex flex-wrap gap-4">
-            <button
-              onClick={() => handleDownload('word')}
-              className="px-6 py-3 bg-[#0a2342] text-white font-semibold rounded-lg hover:bg-[#113461] transition-colors"
-            >
-              Download as Word
-            </button>
-            <button
-              onClick={() => handleDownload('pdf')}
-              className="px-6 py-3 bg-[#d97706] text-white font-semibold rounded-lg hover:bg-[#b45309] transition-colors"
-            >
-              Download as PDF
-            </button>
-          </div>
-          <div className="p-8 max-h-[500px] overflow-y-auto">
-            <div className="prose prose-lg max-w-none text-gray-800 whitespace-pre-wrap">
-              {proposal || "Your proposal will appear here..."}
+      {complianceCheck.latest_proposal && (
+        <div className="mb-10">
+          <div className="bg-white border border-gray-200 rounded-lg">
+            <div className="p-6 border-b border-gray-200 flex flex-wrap gap-4">
+              <a
+                href={complianceCheck.latest_proposal.docx_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-6 py-3 bg-[#0a2342] text-white font-semibold rounded-lg hover:bg-[#113461] transition-colors"
+              >
+                Download as Word
+              </a>
+              <a
+                href={complianceCheck.latest_proposal.pdf_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-6 py-3 bg-[#d97706] text-white font-semibold rounded-lg hover:bg-[#b45309] transition-colors"
+              >
+                Download as PDF
+              </a>
+              <span className="text-gray-600 self-center">Version {complianceCheck.latest_proposal.version}</span>
+            </div>
+            <div className="p-8 max-h-[500px] overflow-y-auto">
+              <div className="prose prose-lg max-w-none text-gray-800 whitespace-pre-wrap">
+                Your proposal is ready! Download using the buttons above.
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Edit Request */}
       <div className="mb-10 bg-gray-50 border border-gray-200 rounded-lg p-6">
         <label className="block text-lg font-semibold text-[#0a2342] mb-3">Tell us what to change in the proposal</label>
         <textarea
           value={editRequest}
           onChange={(e) => setEditRequest(e.target.value)}
           placeholder="Describe the changes you'd like to make..."
-          className="w-full h-32 p-4 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-[#0a2342] text-gray-800 mb-4"
+          className="w-full h-32 p-4 bg-gray-50 text-gray-900 placeholder:text-gray-500 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-[#0a2342] mb-4"
         />
         <button
           onClick={handleRegenerate}
@@ -448,7 +523,6 @@ const Step3: React.FC<{
         </button>
       </div>
 
-      {/* Home Button */}
       <div className="mt-auto">
         <button
           onClick={onBackHome}
@@ -464,43 +538,60 @@ const Step3: React.FC<{
 // --- Main Component ---
 export function AgentComplyntApp() {
   const [step, setStep] = useState<Step>(1);
-  // Persist all state
+  const [applicantEmail, setApplicantEmail] = useState('');
+  const [couponCode, setCouponCode] = useState('');
   const [companyDocs, setCompanyDocs] = useState<UploadedDoc[]>([]);
   const [tenderText, setTenderText] = useState('');
   const [tenderFile, setTenderFile] = useState<File | null>(null);
+  const [complianceCheck, setComplianceCheck] = useState<ComplianceCheckResponse | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [loadingSteps, setLoadingSteps] = useState<string[]>(['Starting...']);
-  const [proposal, setProposal] = useState('');
 
   const handleCheckProposal = async (text: string, file: File | null) => {
     setIsAnalyzing(true);
     setLoadingSteps(['Reading the tender...']);
 
-    const steps = [
-      'Reading the tender...',
-      'Checking your documents...',
-      'Writing your proposal...',
-    ];
-
-    let stepIndex = 0;
-    const interval = setInterval(() => {
-      stepIndex++;
-      if (stepIndex < steps.length) {
-        setLoadingSteps(prev => [...prev, steps[stepIndex]]);
-      } else {
-        clearInterval(interval);
-      }
-    }, 1500);
-
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 5000));
-      setProposal('This is your proposal draft! Here is all the content...');
+      // 1. Create tender submission
+      const formData = new FormData();
+      formData.append("email", applicantEmail);
+      formData.append("coupon", couponCode);
+      if (text) formData.append("tender_text", text);
+      if (file) formData.append("tender_file", file);
+
+      const submitResponse = await fetch(`${API_BASE_URL}/api/tender-submissions/`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!submitResponse.ok) {
+        const errText = await submitResponse.text();
+        alert(`Error: ${errText}`);
+        throw new Error("Failed to create tender submission");
+      }
+      const submissionData: TenderSubmissionResponse = await submitResponse.json();
+      setLoadingSteps(prev => [...prev, "Checking your documents..."]);
+
+      // 2. Analyze tender
+      const analyzeResponse = await fetch(`${API_BASE_URL}/api/tender-submissions/${submissionData.id}/analyze/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ coupon: couponCode }),
+      });
+      if (!analyzeResponse.ok) {
+        const errText = await analyzeResponse.text();
+        alert(`Error: ${errText}`);
+        throw new Error("Analysis failed");
+      }
+      setLoadingSteps(prev => [...prev, "Writing your proposal..."]);
+
+      // 3. Get compliance check
+      const checkData: ComplianceCheckResponse = await analyzeResponse.json();
+      setComplianceCheck(checkData);
       setStep(3);
     } catch (error) {
       console.error(error);
+      alert("Something went wrong, please try again.");
     } finally {
-      clearInterval(interval);
       setIsAnalyzing(false);
     }
   };
@@ -513,7 +604,10 @@ export function AgentComplyntApp() {
             companyDocs={companyDocs}
             setCompanyDocs={setCompanyDocs}
             onContinue={() => setStep(2)}
-            onBack={() => {}}
+            applicantEmail={applicantEmail}
+            setApplicantEmail={setApplicantEmail}
+            couponCode={couponCode}
+            setCouponCode={setCouponCode}
           />
         );
       case 2:
@@ -527,15 +621,19 @@ export function AgentComplyntApp() {
             isLoading={isAnalyzing}
             loadingSteps={loadingSteps}
             onBack={() => setStep(1)}
+            applicantEmail={applicantEmail}
+            couponCode={couponCode}
           />
         );
       case 3:
         return (
           <Step3
             onBackHome={() => setStep(1)}
-            proposal={proposal}
-            setProposal={setProposal}
             onBack={() => setStep(2)}
+            complianceCheck={complianceCheck}
+            setComplianceCheck={setComplianceCheck}
+            applicantEmail={applicantEmail}
+            couponCode={couponCode}
           />
         );
       default:
@@ -551,7 +649,6 @@ export function AgentComplyntApp() {
 
   return (
     <div className="min-h-screen bg-[#f8fafc]">
-      {/* Step Indicator with Back Arrow */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-4xl mx-auto px-4 py-6 flex items-center gap-4">
           {step > 1 && (
@@ -566,7 +663,6 @@ export function AgentComplyntApp() {
         </div>
       </div>
 
-      {/* Content */}
       <div className="max-w-4xl mx-auto px-4 py-10">
         {renderStep()}
       </div>
