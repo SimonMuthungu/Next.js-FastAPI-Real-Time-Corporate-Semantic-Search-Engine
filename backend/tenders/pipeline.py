@@ -16,6 +16,9 @@ from google.api_core.exceptions import GoogleAPIError
 from docx import Document
 from fpdf import FPDF, HTMLMixin
 from django.conf import settings
+import markdown  # pip install markdown
+from docx.shared import Pt
+import re
 
 # --- Configure Logging ---
 logger = logging.getLogger(__name__)
@@ -73,21 +76,14 @@ def with_retries(max_retries=MAX_RETRIES, base_delay=RETRY_DELAY):
 
 # --- Text Preprocessor for FPDF Unicode ---
 def sanitize_text_for_pdf(text: str) -> str:
-    # Replace smart quotes and other problematic characters with safe ASCII equivalents
-    replacements = {
-        "’": "'",
-        "‘": "'",
-        "”": '"',
-        "“": '"',
-        "–": "-",
-        "—": "-",
-        "…": "...",
-        "€": "EUR",
-        "£": "GBP",
-    }
+    # 1. Replace legacy smart characters
+    replacements = {"’": "'", "‘": "'", "”": '"', "“": '"', "–": "-", "—": "-", "…": "...", "€": "EUR", "£": "GBP"}
     for old, new in replacements.items():
         text = text.replace(old, new)
-    return text
+    # 2. Strip non-printable control characters
+    text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
+    # 3. Aggressive shield: remove everything outside the Basic Multilingual Plane
+    return re.sub(r'[^\x00-\uFFFF]', '', text)
 
 
 # --- Unified LLM Call Function with Retries and Raw Logging ---
@@ -137,43 +133,96 @@ def extract_text_from_pdf(content: bytes) -> str:
 class MyFPDF(FPDF, HTMLMixin):
     pass
 
+# def generate_docx_and_pdf(content: str, base_filename: str) -> tuple[str, str]:
+#     os.makedirs(settings.MEDIA_ROOT / "proposals" / "docx", exist_ok=True)
+#     os.makedirs(settings.MEDIA_ROOT / "proposals" / "pdf", exist_ok=True)
+
+#     # Sanitize content for PDF
+#     sanitized_content = sanitize_text_for_pdf(content)
+
+#     # Generate DOCX
+#     doc = Document()
+#     doc.add_heading("Tender Proposal", 0)
+#     for paragraph in content.split("\n"):
+#         if paragraph.strip():
+#             doc.add_paragraph(paragraph.strip())
+#     docx_path = f"proposals/docx/{base_filename}.docx"
+#     doc.save(settings.MEDIA_ROOT / docx_path)
+
+#     # Generate PDF from HTML
+#     newline = '\n'
+#     html_content = f"""
+#         <html>
+#             <head>
+#                 <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+#                 <title>Tender Proposal</title>
+#             </head>
+#             <body style="padding: 2rem; font-family: Arial, sans-serif;">
+#                 <h1>Tender Proposal</h1>
+#                 {''.join([f'<p>{p}</p>' for p in sanitized_content.split(newline) if p.strip()])}
+#             </body>
+#         </html>
+#     """
+#     pdf_path = f"proposals/pdf/{base_filename}.pdf"
+#     pdf = MyFPDF()
+#     pdf.add_page()
+#     pdf.set_font("Arial", size=12)  # Use Arial which has better Unicode support
+#     pdf.write_html(html_content)
+#     pdf.output(settings.MEDIA_ROOT / pdf_path)
+
+#     return docx_path, pdf_path
+
 def generate_docx_and_pdf(content: str, base_filename: str) -> tuple[str, str]:
-    os.makedirs(settings.MEDIA_ROOT / "proposals" / "docx", exist_ok=True)
-    os.makedirs(settings.MEDIA_ROOT / "proposals" / "pdf", exist_ok=True)
+    os.makedirs(settings.MEDIA_ROOT / "proposals/docx", exist_ok=True)
+    os.makedirs(settings.MEDIA_ROOT / "proposals/pdf", exist_ok=True)
 
-    # Sanitize content for PDF
-    sanitized_content = sanitize_text_for_pdf(content)
-
-    # Generate DOCX
+    # 1. Generate DOCX
     doc = Document()
     doc.add_heading("Tender Proposal", 0)
-    for paragraph in content.split("\n"):
-        if paragraph.strip():
-            doc.add_paragraph(paragraph.strip())
+    for paragraph_text in content.split("\n"):
+        clean_para = paragraph_text.strip()
+        if not clean_para: continue
+        if clean_para.startswith("#"):
+            header_match = re.match(r"^(#+)\s*(.*)", clean_para)
+            if header_match:
+                doc.add_heading(header_match.group(2), level=min(len(header_match.group(1)), 4))
+                continue
+        p = doc.add_paragraph()
+        parts = re.split(r"(\*\*.*?\*\*)", clean_para)
+        for part in parts:
+            if part.startswith("**") and part.endswith("**"):
+                p.add_run(part[2:-2]).bold = True
+            else:
+                p.add_run(part)
     docx_path = f"proposals/docx/{base_filename}.docx"
     doc.save(settings.MEDIA_ROOT / docx_path)
 
-    # Generate PDF from HTML
-    newline = '\n'
-    html_content = f"""
-        <html>
-            <head>
-                <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
-                <title>Tender Proposal</title>
-            </head>
-            <body style="padding: 2rem; font-family: Arial, sans-serif;">
-                <h1>Tender Proposal</h1>
-                {''.join([f'<p>{p}</p>' for p in sanitized_content.split(newline) if p.strip()])}
-            </body>
-        </html>
-    """
-    pdf_path = f"proposals/pdf/{base_filename}.pdf"
-    pdf = MyFPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)  # Use Arial which has better Unicode support
-    pdf.write_html(html_content)
-    pdf.output(settings.MEDIA_ROOT / pdf_path)
+    # 2. Generate PDF
+    html_body = markdown.markdown(content)
+    sanitized_html = sanitize_text_for_pdf(f"<html><body>{html_body}</body></html>")
 
+    pdf = FPDF()
+    font_dir = settings.BASE_DIR / "static" / "fonts" 
+    
+    # Register 360-degree font support
+    pdf.add_font("DejaVu", style="", fname=str(font_dir / "DejaVuSans.ttf"))
+    pdf.add_font("DejaVu", style="B", fname=str(font_dir / "DejaVuSans-Bold.ttf"))
+    pdf.add_font("DejaVu", style="I", fname=str(font_dir / "DejaVuSans-Oblique.ttf"))
+    pdf.add_font("DejaVu", style="BI", fname=str(font_dir / "DejaVuSans-BoldOblique.ttf"))
+    
+    # Register Mono support
+    mono = str(font_dir / "DejaVuSansMono.ttf")
+    pdf.add_font("Courier", style="", fname=mono)
+    pdf.add_font("Courier", style="B", fname=mono)
+    pdf.add_font("Courier", style="I", fname=mono)
+    pdf.add_font("Courier", style="BI", fname=mono)
+    
+    pdf.add_page()
+    pdf.set_font("DejaVu", size=12)
+    pdf.write_html(sanitized_html)
+    
+    pdf_path = f"proposals/pdf/{base_filename}.pdf"
+    pdf.output(settings.MEDIA_ROOT / pdf_path)
     return docx_path, pdf_path
 
 
